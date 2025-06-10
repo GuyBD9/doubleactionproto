@@ -1,0 +1,18 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Database file - Do not upload the database to GitHub!
+*.db
+*.sqlite3
+
+# OS-generated files
+.DS_Store
+Thumbs.db
