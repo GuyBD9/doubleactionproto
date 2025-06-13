@@ -13,3 +13,88 @@ To run this system locally on your computer:
 ```bash
 git clone https://github.com/GuyBD9/doubleactionproto.git
 cd doubleactionproto
+```
+
+---
+
+## 🧰 Setup Instructions (Mac & Windows)
+
+### 📍 Prerequisite:
+Make sure you have **Python 3.8+** installed. You can check with:
+```bash
+python3 --version  # or python --version on Windows
+```
+
+---
+
+### 💻 Mac Users
+
+#### 1. Open Terminal and navigate to the project folder:
+```bash
+cd ~/Downloads/doubleactionproto
+```
+
+#### 2. Create and activate a virtual environment:
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+#### 3. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+#### 4. Set up the database:
+```bash
+python database_setup.py
+python seed_database.py
+```
+
+#### 5. Run the Flask server:
+```bash
+python app.py
+```
+
+#### 6. Open the system in your browser:
+Open [http://127.0.0.1:5000/login](http://127.0.0.1:5000/login) in Chrome
+
+---
+
+### 🪟 Windows Users
+
+#### 1. Open CMD or PowerShell and go to the project folder:
+```bash
+cd %USERPROFILE%\Downloads\doubleactionproto
+```
+
+#### 2. Create and activate a virtual environment:
+```bash
+python -m venv venv
+venv\Scripts\activate
+```
+
+#### 3. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+#### 4. Set up the database:
+```bash
+python database_setup.py
+python seed_database.py
+```
+
+#### 5. Run the Flask server:
+```bash
+python app.py
+```
+
+#### 6. Open the system in your browser:
+Open [http://127.0.0.1:5000/login](http://127.0.0.1:5000/login) in Chrome
+
+---
+
+### ✅ Final Notes
+- Do **NOT** double-click `login.html` or open with `file:///` — this will break the system.
+- Make sure the Flask server is running before trying to access it from your browser.
