@@ -1,13 +1,12 @@
 import sqlite3
 
-# This script sets up the database schema.
+# This script sets up the database schema with detailed timestamps.
 # Run this script ONCE after deleting the old .db file.
 
 conn = sqlite3.connect('doubleaction.db')
 cursor = conn.cursor()
 
 # --- Customers Table ---
-# Using 'customer_id' as the primary key and 'id_number' for the user-provided ID.
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS customers (
     customer_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -19,6 +18,7 @@ CREATE TABLE IF NOT EXISTS customers (
 ''')
 
 # --- Products Table ---
+# ADDED: creation_timestamp column.
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS products (
     product_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,12 +27,13 @@ CREATE TABLE IF NOT EXISTS products (
     category TEXT,
     price REAL,
     quantity INTEGER,
-    min_quantity INTEGER
+    min_quantity INTEGER,
+    creation_timestamp TEXT
 )
 ''')
 
 # --- Orders Table ---
-# IMPORTANT FIX: The column is named 'date', not 'order_date'.
+# ADDED: both creation and update timestamps for full traceability.
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS orders (
     order_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -40,11 +41,13 @@ CREATE TABLE IF NOT EXISTS orders (
     date TEXT,
     status TEXT,
     total REAL,
+    creation_timestamp TEXT,
+    last_updated_timestamp TEXT,
     FOREIGN KEY(customer_id) REFERENCES customers(customer_id)
 )
 ''')
 
-# --- Order Items Table (Link between orders and products) ---
+# --- Order Items Table ---
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS order_items (
     order_item_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,4 +72,4 @@ CREATE TABLE IF NOT EXISTS suppliers (
 
 conn.commit()
 conn.close()
-print("Database 'doubleaction.db' and its tables were created successfully.")
+print("Database 'doubleaction.db' and its tables were created successfully with creation and update timestamps.")
