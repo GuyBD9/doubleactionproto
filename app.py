@@ -1,7 +1,11 @@
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import sqlite3
 import datetime  # Ensure datetime is imported
+from flask import Flask, redirect
+from flask import send_from_directory
+import os
 
 app = Flask(__name__)
 CORS(app)
@@ -14,6 +18,14 @@ SKU_PREFIXES = {
     "Fabrics": "FAB", "Pants": "PNT", "Vests": "VST",
     "Jackets": "JCK", "Shirts": "SHT", "Ties": "TIE"
 }
+
+@app.route('/login')
+def login_page():
+    return send_from_directory(os.path.abspath(os.getcwd()), 'login.html')
+
+@app.route('/<path:filename>')
+def static_html(filename):
+    return send_from_directory(os.path.abspath(os.getcwd()), filename)
 
 # --- DATABASE HELPER ---
 def get_db_connection():
