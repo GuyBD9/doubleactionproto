@@ -38,7 +38,7 @@
 <div class="container">
   <div class="d-flex justify-content-between align-items-center mb-4">
     <h2>Orders Management</h2>
-    <button class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#orderModal"><i class="bi bi-plus-circle"></i> Add Order</button>
+    <button id="addOrderBtn" class="btn btn-dark"><i class="bi bi-plus-circle"></i> Add Order</button>
   </div>
   
   <div class="card card-body bg-light mb-3">
@@ -67,7 +67,7 @@
       <tr>
         <th>Order ID</th>
         <th>Customer</th>
-        <th>Timestamps</th> <!-- UPDATED: Combined timestamp column -->
+        <th>Timestamps</th>
         <th>Status</th>
         <th>Total</th>
         <th>Actions</th>
@@ -77,7 +77,7 @@
   </table>
 </div>
 
-<!-- Add Order Modal -->
+<!-- Add/Edit Order Modal -->
 <div class="modal fade" id="orderModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
@@ -90,9 +90,12 @@
           <div class="col-md-6">
             <h6>Customer Info</h6>
             <input class="form-control mb-2" placeholder="Full Name" id="custName" required>
-            <input class="form-control mb-2" placeholder="ID Number" id="custIdNumber" required>
+            <input class="form-control mb-2" placeholder="ID Number" id="custIdNumber" required readonly>
             <input class="form-control mb-2" placeholder="Phone" id="custPhone" required>
             <input class="form-control mb-2" placeholder="Email" id="custEmail">
+            <input class="form-control mb-2" placeholder="Street" id="custStreet">
+            <input class="form-control mb-2" placeholder="City" id="custCity">
+            <input class="form-control mb-2" placeholder="Postal Code" id="custPostal">
             <input class="form-control mb-2" type="date" id="orderDate" required>
           </div>
           <div class="col-md-6">
@@ -109,147 +112,264 @@
   </div>
 </div>
 
+<!-- Log Modal -->
+<div class="modal fade" id="logModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Order Activity Log</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <ul id="logList" class="list-group"></ul>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
   const API_URL = "http://127.0.0.1:5000";
   
-  // Security check is unchanged
-  const role = sessionStorage.getItem("role") || "guest";
-  if (role !== "admin") {
-    alert("Access denied. Admins only.");
-    window.location.href = window.location.href.replace(/[^/]*$/, 'login.html');
+  /* ---- Auth check and Initial Load ---- */
+  document.addEventListener("DOMContentLoaded", () => {
+    const role = sessionStorage.getItem("role") || "guest";
+    if (role !== "admin") {
+      alert("Access denied. Admins only.");
+      window.location.href = window.location.href.replace(/[^/]*$/, 'login.html');
+      return;
+    }
+    // Setup event listeners after DOM is loaded
+    setupEventListeners();
+    fetchOrders();
+  });
+
+  function setupEventListeners() {
+    /* ---- *** NEW: Specific listener for the "Add Order" button *** ---- */
+    document.getElementById("addOrderBtn").addEventListener("click", () => {
+      const form = document.getElementById("orderForm");
+      form.reset();
+      form.removeAttribute("data-order-id");
+      
+      document.getElementById("custIdNumber").readOnly = false; // Make sure ID is editable for new customer
+      document.getElementById("orderDate").valueAsDate = new Date();
+      
+      document.querySelector("#orderForm .modal-title").textContent = "Add New Order";
+      document.querySelector("#orderForm button[type='submit']").textContent = "Save Order";
+      
+      loadProducts();
+      new bootstrap.Modal(document.getElementById("orderModal")).show();
+    });
+
+    /* ---- Submit listener (handles both Add and Edit) ---- */
+    document.getElementById("orderForm").addEventListener("submit", handleFormSubmit);
+
+    /* ---- Search listener ---- */
+    document.getElementById("searchBtn").addEventListener("click", () => {
+      const name = document.getElementById("searchName").value;
+      const status = document.getElementById("searchStatus").value;
+      fetchOrders({ name, status });
+    });
   }
 
-  // fetchOrders is unchanged
+  /* ---- Orders Table ---- */
   async function fetchOrders(params = {}) {
     try {
       const query = new URLSearchParams(params).toString();
       const res = await fetch(`${API_URL}/orders?${query}`);
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      const orders = await res.json();
-      renderOrders(orders);
+      if (!res.ok) throw new Error("Server error");
+      renderOrders(await res.json());
     } catch (err) {
-      console.error("Failed to fetch orders:", err);
-      document.getElementById("ordersTable").innerHTML = `<tr><td colspan="6" class="text-center text-danger">Failed to load orders. Is the server running?</td></tr>`;
+      console.error(err);
+      document.getElementById("ordersTable").innerHTML =
+        '<tr><td colspan="6" class="text-center text-danger">Failed to load orders.</td></tr>';
     }
   }
 
   function renderOrders(orders) {
     const table = document.getElementById("ordersTable");
     table.innerHTML = "";
-    if (orders.length === 0) {
-        table.innerHTML = '<tr><td colspan="6" class="text-center">No orders found.</td></tr>';
-        return;
+    if (!orders || !orders.length) {
+      table.innerHTML = '<tr><td colspan="6" class="text-center">No orders found.</td></tr>';
+      return;
     }
     const statuses = ["Order Received", "Pending", "Shipped", "Delivered", "Cancelled"];
-    
     orders.forEach(order => {
       const row = document.createElement("tr");
-      const optionsHtml = statuses.map(s => `<option value="${s}" ${order.status === s ? 'selected' : ''}>${s}</option>`).join('');
-      const statusDropdown = `<select class="form-select form-select-sm status-select" onchange="updateStatus(${order.order_id}, this.value)">${optionsHtml}</select>`;
-      
-      // UPDATED: Display both timestamps elegantly
-      const creationTime = order.creation_timestamp ? new Date(order.creation_timestamp).toLocaleString('he-IL') : 'N/A';
-      const updateTime = order.last_updated_timestamp ? new Date(order.last_updated_timestamp).toLocaleString('he-IL') : 'N/A';
-      
+      const statusOptions = statuses.map(s => `<option value="${s}" ${order.status === s ? 'selected' : ''}>${s}</option>`).join('');
+      const created = order.creation_timestamp ? new Date(order.creation_timestamp).toLocaleString('he-IL') : 'N/A';
+      const updated = order.last_updated_timestamp ? new Date(order.last_updated_timestamp).toLocaleString('he-IL') : 'N/A';
       row.innerHTML = `
         <td>#${order.order_id}</td>
         <td>${order.customer}</td>
-        <td>
-          <div>Created: <span class="timestamp">${creationTime}</span></div>
-          <div>Updated: <span class="timestamp">${updateTime}</span></div>
-        </td>
-        <td>${statusDropdown}</td>
+        <td><div>Created: <span class="timestamp">${created}</span></div>
+            <div>Updated: <span class="timestamp">${updated}</span></div></td>
+        <td><select class="form-select form-select-sm status-select"
+                onchange="updateStatus(${order.order_id}, this.value)">${statusOptions}</select></td>
         <td>$${order.total ? order.total.toFixed(2) : '0.00'}</td>
         <td>
-          <button class="btn btn-sm btn-outline-primary" onclick="viewOrderDetails(${order.order_id})"><i class="bi bi-eye"></i></button>
-        </td>
-      `;
+          <div class="btn-group">
+            <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">Actions</button>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="#" onclick="editOrder(${order.order_id})"><i class="bi bi-pencil"></i> Edit Order</a></li>
+              <li><a class="dropdown-item" href="#" onclick="viewOrderLog(${order.order_id})"><i class="bi bi-clock-history"></i> View Log</a></li>
+            </ul>
+          </div>
+        </td>`;
       table.appendChild(row);
     });
   }
 
-  // UPDATED: Refresh table after status update to show new timestamp
   async function updateStatus(orderId, newStatus) {
     try {
-        const res = await fetch(`${API_URL}/orders/${orderId}/status`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: newStatus })
-        });
-        if (!res.ok) {
-            alert('Failed to update status.');
-        }
-        fetchOrders(); // Always refresh to show the new update time
-    } catch(err) {
-        console.error("Error updating status:", err);
-        alert('An error occurred while updating status.');
+      const res = await fetch(`${API_URL}/orders/${orderId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+      if (!res.ok) throw new Error("Update failed");
+      fetchOrders();
+    } catch (err) {
+      alert("Status update failed"); console.error(err);
+    }
+  }
+
+  /* ---- Product list for modal ---- */
+  async function loadProducts() {
+    try {
+      const res = await fetch(`${API_URL}/products`);
+      if (!res.ok) throw new Error("Failed to load products");
+      const products = await res.json();
+      const list = document.getElementById("productList");
+      list.innerHTML = "";
+      products.forEach(p => {
+        list.insertAdjacentHTML("beforeend",
+          `<div class="input-group mb-2">
+             <span class="input-group-text">${p.name}</span>
+             <input type="number" min="0" class="form-control"
+                    placeholder="Qty" data-product-id="${p.product_id}" data-price="${p.price}">
+           </div>`);
+      });
+    } catch (error) {
+      console.error(error);
+      document.getElementById("productList").innerHTML = `<p class="text-danger">Could not load products.</p>`
     }
   }
   
-  // The rest of the script is unchanged
-  async function loadProducts() {
-    const res = await fetch(`${API_URL}/products`);
-    const products = await res.json();
-    const list = document.getElementById("productList");
-    list.innerHTML = "";
-    products.forEach(p => {
-      const div = document.createElement("div");
-      div.className = "input-group mb-2";
-      div.innerHTML = `<span class="input-group-text">${p.name}</span><input type="number" min="0" class="form-control" placeholder="Qty" data-product-id="${p.product_id}" data-price="${p.price}">`;
-      list.appendChild(div);
-    });
-  }
-
-  document.getElementById("orderForm").addEventListener("submit", async (e) => {
+  /* ---- Form Submission Handler ---- */
+  async function handleFormSubmit(e) {
     e.preventDefault();
     const items = [...document.querySelectorAll("#productList input")]
-      .map(i => ({ product_id: parseInt(i.dataset.productId), quantity: parseInt(i.value || "0"), price: parseFloat(i.dataset.price) }))
+      .map(i => ({ product_id: +i.dataset.productId, quantity: +i.value || 0, price: +i.dataset.price }))
       .filter(i => i.quantity > 0);
-    
-    if (items.length === 0) { alert("Please select at least one item."); return; }
-
-    const total = items.reduce((sum, i) => sum + (i.quantity * i.price), 0);
+  
+    if (items.length === 0) return alert("Pick at least one item.");
+  
+    const total = items.reduce((s, i) => s + i.quantity * i.price, 0);
     const order = {
-      customer: { name: document.getElementById("custName").value, id_number: document.getElementById("custIdNumber").value, phone: document.getElementById("custPhone").value, email: document.getElementById("custEmail").value },
+      customer: {
+        name: document.getElementById("custName").value,
+        id_number: document.getElementById("custIdNumber").value,
+        phone: document.getElementById("custPhone").value,
+        email: document.getElementById("custEmail").value,
+        street: document.getElementById("custStreet").value,
+        city: document.getElementById("custCity").value,
+        postal_code: document.getElementById("custPostal").value
+      },
       date: document.getElementById("orderDate").value,
       status: "Order Received",
       total,
       items
     };
-
-    const res = await fetch(`${API_URL}/orders`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(order) });
-    if (res.ok) {
+  
+    const orderId = document.getElementById("orderForm").dataset.orderId;
+    const isEditMode = !!orderId;
+  
+    const url = isEditMode ? `${API_URL}/orders/${orderId}` : `${API_URL}/orders`;
+    const method = isEditMode ? "PUT" : "POST";
+  
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(order)
+      });
+      
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || "Failed to save order.");
+      }
+      
       bootstrap.Modal.getInstance(document.getElementById("orderModal")).hide();
       fetchOrders();
-    } else {
-      alert("Failed to save order.");
+    } catch(err) {
+      alert(`Error: ${err.message}`);
+      console.error(err);
     }
-  });
-
-  document.getElementById("searchBtn").addEventListener("click", () => {
-    const name = document.getElementById("searchName").value;
-    const status = document.getElementById("searchStatus").value;
-    const filters = {};
-    if (name) filters.name = name;
-    if (status) filters.status = status;
-    fetchOrders(filters);
-  });
-  
-  document.getElementById("orderModal").addEventListener("show.bs.modal", () => {
-    document.getElementById("orderForm").reset();
-    document.getElementById("orderDate").valueAsDate = new Date();
-    loadProducts();
-  });
-  
-  function viewOrderDetails(orderId) {
-      alert("Viewing details for Order ID: " + orderId + "\n(This feature is coming soon!)");
   }
 
-  document.addEventListener('DOMContentLoaded', () => {
-      fetchOrders();
-  });
-</script>
+  /* ---- Modal show event listener REMOVED ---- */
+  // The problematic show.bs.modal listener has been removed.
 
+  /* ---- View / Edit / Log helpers ---- */
+  async function editOrder(orderId) {
+    try {
+      const res = await fetch(`${API_URL}/orders/${orderId}`);
+      if (!res.ok) throw new Error("Failed to load order");
+      const data = await res.json();
+      
+      const form = document.getElementById("orderForm");
+      form.reset(); // First, reset to clear any old state
+      
+      // Populate customer fields
+      document.getElementById("custName").value = data.customer.name;
+      document.getElementById("custIdNumber").value = data.customer.id_number;
+      document.getElementById("custIdNumber").readOnly = true; // Lock the ID field
+      document.getElementById("custPhone").value = data.customer.phone;
+      document.getElementById("custEmail").value = data.customer.email || '';
+      document.getElementById("custStreet").value = data.customer.street || '';
+      document.getElementById("custCity").value = data.customer.city || '';
+      document.getElementById("custPostal").value = data.customer.postal_code || '';
+      document.getElementById("orderDate").value = data.date;
+      
+      // Set the form into "edit mode"
+      form.dataset.orderId = orderId;
+      
+      // Update modal texts
+      document.querySelector("#orderForm .modal-title").textContent = `Edit Order #${orderId}`;
+      document.querySelector("#orderForm button[type='submit']").textContent = "Update Order";
+      
+      // Load products and then fill quantities
+      await loadProducts();
+      data.items.forEach(item => {
+        const input = document.querySelector(`#productList input[data-product-id="${item.product_id}"]`);
+        if (input) input.value = item.quantity;
+      });
+      
+      // Show the modal
+      new bootstrap.Modal(document.getElementById("orderModal")).show();
+  
+    } catch (err) {
+      console.error(err);
+      alert("Could not load order details.");
+    }
+  }
+
+  async function viewOrderLog(id) {
+    try {
+      const res = await fetch(`${API_URL}/orders/${id}/logs`);
+      if (!res.ok) throw new Error("log fetch");
+      const logs = await res.json();
+      const list = document.getElementById("logList");
+      list.innerHTML = logs.map(l => `
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          ${l.action}
+          <span class="badge bg-secondary">${new Date(l.timestamp).toLocaleString('he-IL')}</span>
+        </li>`).join('');
+      new bootstrap.Modal(document.getElementById('logModal')).show();
+    } catch (err) { alert("Cannot load log"); console.error(err); }
+  }
+
+</script>
 </body>
 </html>

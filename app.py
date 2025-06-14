@@ -1,4 +1,3 @@
-
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import sqlite3
@@ -59,6 +58,7 @@ def get_dashboard_summary():
 
 # ---------- ORDERS API ENDPOINTS ----------
 
+
 @app.route("/orders", methods=["GET"])
 def get_orders():
     # This function is correct and already fetches the timestamp columns
@@ -83,6 +83,54 @@ def get_orders():
     conn.close()
     return jsonify(orders)
 
+# --- Get single order details ---
+@app.route("/orders/<int:order_id>", methods=["GET"])
+def get_order(order_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # שליפת פרטי ההזמנה
+    cursor.execute("""
+        SELECT o.order_id, o.date, o.status, o.total, 
+               c.name AS customer_name, c.id_number, c.phone, c.email,
+               c.street, c.city, c.postal_code
+        FROM orders o
+        JOIN customers c ON o.customer_id = c.customer_id
+        WHERE o.order_id = ?
+    """, (order_id,))
+    order = cursor.fetchone()
+
+    if not order:
+        conn.close()
+        return jsonify({"error": "Order not found"}), 404
+
+    # שליפת הפריטים שבהזמנה
+    cursor.execute("""
+        SELECT oi.product_id, p.name, oi.quantity, p.price
+        FROM order_items oi
+        JOIN products p ON oi.product_id = p.product_id
+        WHERE oi.order_id = ?
+    """, (order_id,))
+    items = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    return jsonify({
+        "order_id": order["order_id"],
+        "date": order["date"],
+        "status": order["status"],
+        "total": order["total"],
+        "customer": {
+            "name": order["customer_name"],
+            "id_number": order["id_number"],
+            "phone": order["phone"],
+            "email": order["email"],
+            "street": order["street"],
+            "city": order["city"],
+            "postal_code": order["postal_code"]
+        },
+        "items": items
+    })
+
 @app.route("/orders", methods=["POST"])
 def add_order():
     # --- THIS FUNCTION IS NOW FIXED ---
@@ -100,7 +148,7 @@ def add_order():
     if customer:
         customer_id = customer["customer_id"]
     else:
-        cursor.execute("INSERT INTO customers (name, id_number, phone, email) VALUES (?, ?, ?, ?)", (customer_data["name"], customer_data["id_number"], customer_data["phone"], customer_data["email"]))
+        cursor.execute("INSERT INTO customers (name, id_number, phone, email, street, city, postal_code) VALUES (?, ?, ?, ?, ?, ?, ?)", (customer_data["name"], customer_data["id_number"], customer_data["phone"], customer_data["email"], customer_data.get("street"), customer_data.get("city"), customer_data.get("postal_code")))
         customer_id = cursor.lastrowid
     
     # Get the current timestamp
@@ -114,9 +162,12 @@ def add_order():
         cursor.execute("INSERT INTO order_items (order_id, product_id, quantity) VALUES (?, ?, ?)", (order_id, item["product_id"], item["quantity"]))
         cursor.execute("UPDATE products SET quantity = quantity - ? WHERE product_id = ?", (item["quantity"], item["product_id"]))
     
+    cursor.execute("INSERT INTO order_logs (order_id, action, timestamp) VALUES (?, ?, ?)", (order_id, "Order created", timestamp))
+    
     conn.commit()
     conn.close()
     return jsonify({"message": "Order added successfully"}), 201
+
 
 @app.route("/orders/<int:order_id>/status", methods=["PATCH"])
 def update_order_status(order_id):
@@ -135,6 +186,8 @@ def update_order_status(order_id):
     # Update both the status and the last_updated_timestamp
     cursor.execute("UPDATE orders SET status = ?, last_updated_timestamp = ? WHERE order_id = ?", (new_status, timestamp, order_id))
     
+    cursor.execute("INSERT INTO order_logs (order_id, action, timestamp) VALUES (?, ?, ?)", (order_id, f"Status changed to {new_status}", timestamp))
+    
     # Check if the update affected any row. If not, the order was not found.
     if cursor.rowcount == 0:
         conn.close()
@@ -143,6 +196,83 @@ def update_order_status(order_id):
     conn.commit()
     conn.close()
     return jsonify({"message": "Order status updated"}), 200
+
+# ---- Edit Order endpoint ----
+@app.route("/orders/<int:order_id>", methods=["PUT"])
+def edit_order(order_id):
+    data = request.json
+    customer_data = data.get("customer")
+    items = data.get("items", [])
+    date = data.get("date")
+    total = data.get("total")
+
+    if not customer_data or not items:
+        return jsonify({"error": "Missing customer or items data"}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        # --- Transaction Start ---
+
+        # 1. Update customer details
+        cursor.execute("""
+            UPDATE customers SET name = ?, id_number = ?, phone = ?, email = ?, street = ?, city = ?, postal_code = ?
+            WHERE customer_id = (SELECT customer_id FROM orders WHERE order_id = ?)
+        """, (
+            customer_data["name"], customer_data["id_number"], customer_data["phone"], customer_data["email"],
+            customer_data.get("street"), customer_data.get("city"), customer_data.get("postal_code"), order_id))
+
+        # 2. Update order details (date, total, and last_updated timestamp)
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute("""
+            UPDATE orders SET date = ?, total = ?, last_updated_timestamp = ?
+            WHERE order_id = ?
+        """, (date, total, timestamp, order_id))
+
+        # 3. Inventory Balancing: Restore inventory for old items
+        cursor.execute("SELECT product_id, quantity FROM order_items WHERE order_id = ?", (order_id,))
+        old_items = cursor.fetchall()
+        for item in old_items:
+            cursor.execute("UPDATE products SET quantity = quantity + ? WHERE product_id = ?", (item["quantity"], item["product_id"]))
+
+        # 4. Delete existing items from the order
+        cursor.execute("DELETE FROM order_items WHERE order_id = ?", (order_id,))
+
+        # 5. Insert updated items and DECREASE inventory for new items
+        for item in items:
+            # Insert the new item into the order
+            cursor.execute("INSERT INTO order_items (order_id, product_id, quantity) VALUES (?, ?, ?)",
+                           (order_id, item["product_id"], item["quantity"]))
+            # Decrease the stock for the new/updated item quantity
+            cursor.execute("UPDATE products SET quantity = quantity - ? WHERE product_id = ?",
+                           (item["quantity"], item["product_id"]))
+
+        # 6. Log the update action
+        cursor.execute("INSERT INTO order_logs (order_id, action, timestamp) VALUES (?, ?, ?)",
+                       (order_id, "Order edited", timestamp))
+
+        conn.commit()
+        # --- Transaction End ---
+        
+        return jsonify({"message": "Order updated successfully"})
+
+    except sqlite3.Error as e:
+        conn.rollback() # Roll back changes if any error occurs
+        print(f"Database error during order edit: {e}")
+        return jsonify({"error": "Failed to update order due to a database error"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route("/orders/<int:order_id>/logs", methods=["GET"])
+def get_order_logs(order_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT action, timestamp FROM order_logs WHERE order_id = ? ORDER BY timestamp ASC", (order_id,))
+    logs = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return jsonify(logs)
 
 # ---------- PRODUCTS API ENDPOINTS (Unchanged, but included for completeness) ----------
 

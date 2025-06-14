@@ -13,7 +13,10 @@ CREATE TABLE IF NOT EXISTS customers (
     name TEXT NOT NULL,
     id_number TEXT UNIQUE NOT NULL,
     phone TEXT,
-    email TEXT
+    email TEXT,
+    street TEXT,
+    city TEXT,
+    postal_code TEXT
 )
 ''')
 
@@ -70,6 +73,17 @@ CREATE TABLE IF NOT EXISTS suppliers (
 )
 ''')
 
+# --- Order Logs Table ---
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS order_logs (
+    log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER,
+    action TEXT,
+    timestamp TEXT,
+    FOREIGN KEY(order_id) REFERENCES orders(order_id)
+)
+''')
+
 conn.commit()
 conn.close()
-print("Database 'doubleaction.db' and its tables were created successfully with creation and update timestamps.")
+print("Database 'doubleaction.db' and its tables were created successfully with all customer address fields and order_logs.")
