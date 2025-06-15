@@ -65,7 +65,7 @@ Open [http://127.0.0.1:5000/login](http://127.0.0.1:5000/login) in Chrome
 ### 🪟 Windows Users
 
 #### 1. Open CMD or PowerShell and go to the project folder:
-Replace `path\to\...` with the actual location where you saved the project.
+Replace `path\to\...` with the actual location where you saved the project (if opened in the right folder path you can skip this stage).
 ```bash
 cd path\to\doubleactionproto
 ```
