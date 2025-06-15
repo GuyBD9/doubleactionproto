@@ -30,8 +30,9 @@ python3 --version  # or python --version on Windows
 ### 💻 Mac Users
 
 #### 1. Open Terminal and navigate to the project folder:
+Replace `/path/to/...` with the actual location where you saved the project.
 ```bash
-cd ~/Downloads/doubleactionproto
+cd /path/to/doubleactionproto
 ```
 
 #### 2. Create and activate a virtual environment:
@@ -64,8 +65,9 @@ Open [http://127.0.0.1:5000/login](http://127.0.0.1:5000/login) in Chrome
 ### 🪟 Windows Users
 
 #### 1. Open CMD or PowerShell and go to the project folder:
+Replace `path\to\...` with the actual location where you saved the project.
 ```bash
-cd %USERPROFILE%\Downloads\doubleactionproto
+cd path\to\doubleactionproto
 ```
 
 #### 2. Create and activate a virtual environment:

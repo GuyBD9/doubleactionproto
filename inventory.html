@@ -12,7 +12,7 @@
     .navbar-brand img { height: 50px; }
     .navbar-nav .nav-link { color: #fff !important; margin-left: 15px; }
     .container { margin-top: 30px; }
-    .table-warning { --bs-table-bg: #fff3cd; } /* For low stock items */
+    .table-warning { --bs-table-bg: #fff3cd; }
     .timestamp { font-size: 0.85rem; color: #6c757d; }
   </style>
 </head>
@@ -36,11 +36,17 @@
 </header>
 
 <div class="container">
-  <div class="d-flex justify-content-between align-items-center mb-4">
-    <h2>Inventory Management</h2>
-    <button class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#itemModal" onclick="openAddModal()"><i class="bi bi-plus-circle"></i> Add Item</button>
+  <div class="d-flex justify-content-end align-items-center gap-2 mb-3">
+    <button class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#itemModal" onclick="openAddModal()">
+      <i class="bi bi-plus-circle"></i> Add Item
+    </button>
+    <button onclick="searchProduct()" class="btn btn-secondary">Search</button>
+    <button onclick="toggleLowStock()" class="btn btn-warning" id="lowStockBtn">Low Stock</button>
+    <input type="text" id="search-input" placeholder="Search by name or barcode" class="form-control" style="max-width: 200px;">
   </div>
-  
+
+  <h2>Inventory Management</h2>
+
   <table class="table table-bordered table-hover">
     <thead class="table-dark">
       <tr>
@@ -174,7 +180,7 @@
             if (item.quantity <= item.min_quantity) {
                 row.classList.add("table-warning");
             }
-            
+
             row.innerHTML = `
                 <td>${item.sku || 'N/A'}</td>
                 <td>${item.name}</td>
@@ -205,5 +211,58 @@
     renderTable();
   });
 </script>
+
+<script>
+function searchProduct() {
+    const input = document.getElementById("search-input").value.toLowerCase();
+    const rows = document.querySelectorAll("#inventoryTable tr");
+
+    let found = false;
+
+    rows.forEach(row => {
+        const nameCell = row.cells[1]?.innerText.toLowerCase();
+        const skuCell = row.cells[0]?.innerText.toLowerCase();
+
+        if (nameCell.includes(input) || skuCell.includes(input)) {
+            row.style.display = "";
+            found = true;
+        } else {
+            row.style.display = "none";
+        }
+    });
+
+    if (!found && input.trim() !== "") {
+        alert("Product not found.");
+    } else if (input.trim() === "") {
+        rows.forEach(row => row.style.display = "");
+    }
+}
+</script>
+
+<script>
+let lowStockVisible = false;
+
+function toggleLowStock() {
+    const rows = document.querySelectorAll("#inventoryTable tr");
+    const btn = document.getElementById("lowStockBtn");
+
+    if (!lowStockVisible) {
+        rows.forEach(row => {
+            if (!row.classList.contains("table-warning")) {
+                row.style.display = "none";
+            }
+        });
+        btn.textContent = "Show All";
+        lowStockVisible = true;
+    } else {
+        rows.forEach(row => {
+            row.style.display = "";
+        });
+        btn.textContent = "Low Stock";
+        lowStockVisible = false;
+    }
+}
+</script>
+
 </body>
 </html>
