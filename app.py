@@ -5,6 +5,10 @@ import datetime  # Ensure datetime is imported
 from flask import Flask, redirect
 from flask import send_from_directory
 import os
+from flask import send_file
+import pandas as pd
+import io
+from io import BytesIO
 
 app = Flask(__name__)
 CORS(app)
@@ -433,6 +437,160 @@ def get_product_logs(product_id):
         "timestamp": log["timestamp"]
     } for log in logs])
 
+from flask import send_file
+import pandas as pd
+import io
+
+@app.route("/export_orders", methods=["GET"])
+def export_orders():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT 
+            o.order_id,
+            o.date,
+            o.status,
+            o.total,
+            o.creation_timestamp,
+            o.last_updated_timestamp,
+            c.name AS customer_name,
+            c.id_number,
+            c.phone,
+            c.email,
+            c.street,
+            c.city,
+            c.postal_code,
+            p.name AS product_name,
+            p.sku,
+            oi.quantity AS product_quantity
+        FROM orders o
+        JOIN customers c ON o.customer_id = c.customer_id
+        JOIN order_items oi ON o.order_id = oi.order_id
+        JOIN products p ON oi.product_id = p.product_id
+        ORDER BY o.order_id
+    """)
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    df = pd.DataFrame(rows, columns=[
+        "Order ID", "Order Date", "Status", "Total", "Created At", "Last Updated",
+        "Customer Name", "ID Number", "Phone", "Email", "Street", "City", "Postal Code",
+        "Product Name", "SKU", "Product Quantity"
+    ])
+
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name="Orders")
+
+        workbook = writer.book
+        worksheet = writer.sheets["Orders"]
+
+        header_format = workbook.add_format({
+            'bold': True,
+            'bg_color': '#D9D9D9',
+            'border': 1
+        })
+
+        for col_num, column_name in enumerate(df.columns):
+            worksheet.write(0, col_num, column_name, header_format)
+            column_width = max(df[column_name].astype(str).map(len).max(), len(column_name)) + 2
+            worksheet.set_column(col_num, col_num, column_width)
+
+        worksheet.autofilter(0, 0, len(df), len(df.columns) - 1)
+
+    output.seek(0)
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name="orders_export.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    
+@app.route('/export_inventory')
+def export_inventory():
+    conn = sqlite3.connect('doubleaction.db')
+    cursor = conn.cursor()
+
+    # Fetch products
+    cursor.execute('''
+        SELECT 
+            product_id,
+            sku,
+            name,
+            category,
+            price,
+            quantity,
+            min_quantity,
+            creation_timestamp,
+            last_updated_timestamp,
+            last_ordered_timestamp
+        FROM products
+        ORDER BY datetime(creation_timestamp) DESC
+    ''')
+    products_data = cursor.fetchall()
+    product_columns = [desc[0] for desc in cursor.description]
+    df_products = pd.DataFrame(products_data, columns=product_columns)
+
+    # Fetch logs
+    cursor.execute('''
+        SELECT 
+            pl.log_id,
+            pl.product_id,
+            p.name AS product_name,
+            pl.action,
+            pl.quantity_change,
+            pl.timestamp
+        FROM product_logs pl
+        JOIN products p ON pl.product_id = p.product_id
+        ORDER BY datetime(pl.timestamp) DESC
+    ''')
+    logs_data = cursor.fetchall()
+    log_columns = [desc[0] for desc in cursor.description]
+    df_logs = pd.DataFrame(logs_data, columns=log_columns)
+
+    conn.close()
+
+    # Write to Excel with formatting
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        # Inventory sheet
+        df_products.to_excel(writer, index=False, sheet_name='Inventory')
+        workbook  = writer.book
+        sheet1 = writer.sheets['Inventory']
+
+        header_format = workbook.add_format({
+            'bold': True,
+            'bg_color': '#D9D9D9',
+            'border': 1
+        })
+
+        for col_num, value in enumerate(df_products.columns.values):
+            sheet1.write(0, col_num, value, header_format)
+            column_width = max(df_products[value].astype(str).map(len).max(), len(value)) + 2
+            sheet1.set_column(col_num, col_num, column_width)
+
+        sheet1.autofilter(0, 0, len(df_products), len(df_products.columns) - 1)
+
+        # Logs sheet
+        df_logs.to_excel(writer, index=False, sheet_name='Logs')
+        sheet2 = writer.sheets['Logs']
+
+        for col_num, value in enumerate(df_logs.columns.values):
+            sheet2.write(0, col_num, value, header_format)
+            column_width = max(df_logs[value].astype(str).map(len).max(), len(value)) + 2
+            sheet2.set_column(col_num, col_num, column_width)
+
+        sheet2.autofilter(0, 0, len(df_logs), len(df_logs.columns) - 1)
+
+    output.seek(0)
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name="inventory_export.xlsx",
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
 # ---------- MAIN EXECUTION ----------
 
 if __name__ == "__main__":
