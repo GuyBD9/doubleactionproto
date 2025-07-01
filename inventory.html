@@ -60,6 +60,7 @@
         <th>Min Qty</th>
         <th>Date Added</th>
         <th>Actions</th>
+
       </tr>
     </thead>
     <tbody id="inventoryTable"></tbody>
@@ -191,29 +192,45 @@
         const inventory = await res.json();
         const table = document.getElementById("inventoryTable");
         table.innerHTML = "";
-
+  
         inventory.forEach(item => {
             const row = document.createElement("tr");
             if (item.quantity <= item.min_quantity) {
                 row.classList.add("table-warning");
             }
-
+  
+              // --- START: New code for handling multiple timestamps ---
+              // This part takes each timestamp string from the server, converts it to a Date object,
+              // and then formats it into a readable local string for Israeli format (dd/mm/yyyy, hh:mm:ss).
+            const created = item.creation_timestamp ? new Date(item.creation_timestamp).toLocaleString('he-IL') : 'N/A';
+            const updated = item.last_updated_timestamp ? new Date(item.last_updated_timestamp).toLocaleString('he-IL') : 'N/A';
+            const ordered = item.last_ordered_timestamp ? new Date(item.last_ordered_timestamp).toLocaleString('he-IL') : 'N/A';
+              // --- END: New code ---
+  
+  
+              // --- MODIFIED: The innerHTML of the row is updated to show the new structure ---
+              // Note the order of columns has been slightly changed and the currency symbol is now '₪'.
+              // The single timestamp 'td' was replaced with a 'td' containing three divs for better readability.
             row.innerHTML = `
                 <td>${item.sku || 'N/A'}</td>
                 <td>${item.name}</td>
                 <td>${item.category}</td>
                 <td>${item.quantity}</td>
-                <td>$${item.price ? item.price.toFixed(2) : '0.00'}</td>
                 <td>${item.min_quantity}</td>
-                <td class="timestamp">${item.creation_timestamp ? new Date(item.creation_timestamp).toLocaleString('he-IL') : 'N/A'}</td>
+                <td>₪${item.price ? item.price.toFixed(2) : '0.00'}</td>
                 <td>
-                  <button class="btn btn-sm btn-warning" onclick='openEditModal(${JSON.stringify(item)})'>
+                    <div class="timestamp" title="Creation Date"><strong>Created:</strong> ${created}</div>
+                    <div class="timestamp" title="Last Update Date"><strong>Updated:</strong> ${updated}</div>
+                    <div class="timestamp" title="Last Ordered Date"><strong>Ordered:</strong> ${ordered}</div>
+                </td>
+                <td>
+                  <button class="btn btn-sm btn-warning" onclick='openEditModal(${JSON.stringify(item)})' title="Edit Item">
                     <i class="bi bi-pencil-square"></i>
                   </button>
-                  <button class="btn btn-sm btn-danger" onclick="deleteItem(${item.product_id})">
+                  <button class="btn btn-sm btn-danger" onclick="deleteItem(${item.product_id})" title="Delete Item">
                     <i class="bi bi-trash"></i>
                   </button>
-                  <button class="btn btn-sm btn-info" onclick="showLogs(${item.product_id}, '${item.name}')">
+                  <button class="btn btn-sm btn-info" onclick="showLogs(${item.product_id}, '${item.name}')" title="View Logs">
                     <i class="bi bi-clock-history"></i>
                   </button>
                 </td>
@@ -225,7 +242,7 @@
         document.getElementById("inventoryTable").innerHTML = `<tr><td colspan="8" class="text-center text-danger">Could not load inventory data. Please check if the server is running.</td></tr>`;
     }
   }
-
+  
   document.addEventListener('DOMContentLoaded', () => {
     const role = sessionStorage.getItem("role") || "guest";
     if (role !== "admin") {

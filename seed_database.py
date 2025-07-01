@@ -1,10 +1,17 @@
+# seed_database.py (VERSION 3 - FINAL)
+# This version includes the user's FULL product list and seeds customers and orders.
+
 import sqlite3
 import random
 import datetime
+import os
 
+# --- CONFIGURATION ---
 DB_PATH = "doubleaction.db"
+NUM_CUSTOMERS = 15
+NUM_ORDERS = 40  # Increased to 40 for more data
 
-# A list of realistic products for the store
+# A list of realistic products for the store (USER'S FULL LIST)
 PRODUCTS_DATA = {
     "Jackets": [
         {"name": "Slim-Fit Wool Blazer - Charcoal Grey", "price_range": (1200, 1800)},
@@ -85,61 +92,129 @@ SKU_PREFIXES = {
     "Jackets": "JCK", "Shirts": "SHT", "Ties": "TIE"
 }
 
-def seed_database():
-    """
-    Connects to the database and populates it with sample products.
-    """
+def setup_database():
+    """Deletes the old DB and creates a new one from the setup script."""
+    if os.path.exists(DB_PATH):
+        os.remove(DB_PATH)
+        print(f"Removed existing database '{DB_PATH}'.")
+    
+    import database_setup
+    print("Database schema created successfully.")
+
+def seed_products(cursor):
+    """Populates the products table with the full list of sample data."""
+    print("\n--- Seeding Products ---")
+    total_items_added = 0
+    for category, items in PRODUCTS_DATA.items():
+        prefix = SKU_PREFIXES.get(category, "GEN")
+        for i, item_data in enumerate(items, 1):
+            name = item_data["name"]
+            price = round(random.uniform(*item_data["price_range"]), 2)
+            quantity = random.randint(20, 100) # Start with higher stock
+            min_quantity = random.choice([5, 10, 15])
+            sku = f"{prefix}{i:03d}"
+            timestamp = (datetime.datetime.now() - datetime.timedelta(days=random.randint(200, 365))).strftime("%Y-%m-%d %H:%M:%S")
+            
+            cursor.execute("""
+                INSERT INTO products (sku, name, category, price, quantity, min_quantity, creation_timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (sku, name, category, price, quantity, min_quantity, timestamp))
+            total_items_added += 1
+    print(f"Added {total_items_added} products.")
+
+def seed_customers(cursor):
+    """Populates the customers table with sample data."""
+    print("\n--- Seeding Customers ---")
+    customers = [
+        {"name": "Avi Cohen", "id_number": "123456789", "phone": "050-1234567", "email": "avi.c@email.com", "street": "Herzl 1", "city": "Tel Aviv", "postal_code": "61000"},
+        {"name": "Yossi Levi", "id_number": "234567890", "phone": "052-2345678", "email": "yossi.l@email.com", "street": "Bialik 2", "city": "Ramat Gan", "postal_code": "52000"},
+        {"name": "Moshe Mizrahi", "id_number": "345678901", "phone": "054-3456789", "email": "moshe.m@email.com", "street": "Weizmann 3", "city": "Givatayim", "postal_code": "53000"},
+        {"name": "Dana Shalom", "id_number": "456789012", "phone": "053-4567890", "email": "dana.s@email.com", "street": "Rothschild 4", "city": "Tel Aviv", "postal_code": "65000"},
+        {"name": "Gal Gadot", "id_number": "987654321", "phone": "058-9876543", "email": "gal.g@email.com", "street": "Dizengoff 100", "city": "Tel Aviv", "postal_code": "64000"},
+        {"name": "Idan Raichel", "id_number": "567890123", "phone": "055-5678901", "email": "idan.r@email.com", "street": "Hahagana 5", "city": "Kfar Saba", "postal_code": "44100"},
+        {"name": "Shiri Maimon", "id_number": "678901234", "phone": "056-6789012", "email": "shiri.m@email.com", "street": "Jabotinsky 6", "city": "Rishon LeZion", "postal_code": "75000"},
+        {"name": "Lior Suchard", "id_number": "789012345", "phone": "057-7890123", "email": "lior.s@email.com", "street": "Ahad Ha'am 7", "city": "Herzliya", "postal_code": "46100"}
+    ]
+    for cust in customers:
+        cursor.execute("""
+            INSERT INTO customers (name, id_number, phone, email, street, city, postal_code)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (cust["name"], cust["id_number"], cust["phone"], cust["email"], cust["street"], cust["city"], cust["postal_code"]))
+    print(f"Added {len(customers)} customers.")
+
+def seed_orders(cursor):
+    """Creates random orders for existing customers with existing products."""
+    print("\n--- Seeding Orders ---")
+    cursor.execute("SELECT customer_id FROM customers")
+    customer_ids = [row[0] for row in cursor.fetchall()]
+    
+    cursor.execute("SELECT product_id, price FROM products")
+    products = [{"id": row[0], "price": row[1]} for row in cursor.fetchall()]
+
+    if not customer_ids or not products:
+        print("Cannot seed orders without customers and products.")
+        return
+
+    for i in range(NUM_ORDERS):
+        customer_id = random.choice(customer_ids)
+        days_ago = random.randint(1, 180)
+        order_date = datetime.date.today() - datetime.timedelta(days=days_ago)
+        timestamp = (datetime.datetime.now() - datetime.timedelta(days=days_ago, hours=random.randint(1,23))).strftime("%Y-%m-%d %H:%M:%S")
+        status = random.choice(["Delivered", "Shipped", "Pending", "Order Received", "Cancelled"])
+        
+        order_items = []
+        order_total = 0
+        num_items_in_order = random.randint(1, 4)
+        chosen_products = random.sample(products, num_items_in_order)
+        
+        for product in chosen_products:
+            quantity = random.randint(1, 3)
+            order_items.append({"product_id": product["id"], "quantity": quantity})
+            order_total += product["price"] * quantity
+
+        cursor.execute("""
+            INSERT INTO orders (customer_id, date, status, total, creation_timestamp, last_updated_timestamp)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (customer_id, order_date.isoformat(), status, round(order_total, 2), timestamp, timestamp))
+        order_id = cursor.lastrowid
+        cursor.execute("INSERT INTO order_logs (order_id, action, timestamp) VALUES (?, ?, ?)", 
+                       (order_id, "Order created (Seed)", timestamp))
+
+        for item in order_items:
+            product_id = item["product_id"]
+            quantity = item["quantity"]
+            cursor.execute("INSERT INTO order_items (order_id, product_id, quantity) VALUES (?, ?, ?)",
+                           (order_id, product_id, quantity))
+            
+            cursor.execute("UPDATE products SET quantity = quantity - ? WHERE product_id = ?",
+                           (quantity, product_id))
+            
+            # Log inventory and last ordered timestamp
+            cursor.execute("UPDATE products SET last_ordered_timestamp = ? WHERE product_id = ?", (timestamp, product_id))
+            cursor.execute("""
+                INSERT INTO product_logs (product_id, action, quantity_change, timestamp)
+                VALUES (?, ?, ?, ?)
+            """, (product_id, f"Sale (Order #{order_id})", -quantity, timestamp))
+
+    print(f"Added {NUM_ORDERS} orders.")
+
+# --- MAIN EXECUTION ---
+if __name__ == "__main__":
     try:
+        setup_database()
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        print("Successfully connected to the database for seeding.")
-
-        total_items_added = 0
-        for category, items in PRODUCTS_DATA.items():
-            print(f"\n--- Seeding category: {category} ---")
-            
-            prefix = SKU_PREFIXES.get(category, "GEN")
-            cursor.execute("SELECT sku FROM products WHERE category = ? ORDER BY sku DESC LIMIT 1", (category,))
-            last_sku = cursor.fetchone()
-            
-            start_number = 0
-            if last_sku:
-                try:
-                    start_number = int(last_sku[0][-3:])
-                except (ValueError, IndexError):
-                    start_number = 0
-
-            for i, item_data in enumerate(items, 1):
-                name = item_data["name"]
-                price = round(random.uniform(*item_data["price_range"]), 2)
-                quantity = random.randint(3, 50) if random.random() > 0.1 else random.randint(1, 10)
-                min_quantity = 10 if category != "Fabrics" else 5
-                sku_number = start_number + i
-                sku = f"{prefix}{sku_number:03d}"
-                # ADDED: Get the current timestamp for each item
-                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                try:
-                    # UPDATED: Insert statement now includes the timestamp
-                    cursor.execute("""
-                        INSERT INTO products (sku, name, category, price, quantity, min_quantity, creation_timestamp)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (sku, name, category, price, quantity, min_quantity, timestamp))
-                    print(f"  Added: {name} (SKU: {sku})")
-                    total_items_added += 1
-                except sqlite3.IntegrityError:
-                    print(f"  Skipped: SKU {sku} or item '{name}' likely already exists.")
+        
+        seed_products(cursor)
+        seed_customers(cursor)
+        seed_orders(cursor)
         
         conn.commit()
-        print(f"\nDatabase seeding complete. Total items added: {total_items_added}.")
+        print("\nDatabase seeding complete with FULL product list!")
 
     except sqlite3.Error as e:
-        print(f"Database error: {e}")
+        print(f"An error occurred: {e}")
     finally:
         if conn:
             conn.close()
             print("Database connection closed.")
-
-
-if __name__ == "__main__":
-    seed_database()
