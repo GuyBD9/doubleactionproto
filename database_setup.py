@@ -31,7 +31,9 @@ CREATE TABLE IF NOT EXISTS products (
     price REAL,
     quantity INTEGER,
     min_quantity INTEGER,
-    creation_timestamp TEXT
+    creation_timestamp TEXT,
+    last_updated_timestamp TEXT,
+    last_ordered_timestamp TEXT
 )
 ''')
 
@@ -84,6 +86,18 @@ CREATE TABLE IF NOT EXISTS order_logs (
 )
 ''')
 
+# --- Product Logs Table ---
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS product_logs (
+    log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL,
+    action TEXT NOT NULL,
+    quantity_change INTEGER,
+    timestamp TEXT NOT NULL,
+    FOREIGN KEY (product_id) REFERENCES products(product_id)
+)
+''')
+
 conn.commit()
 conn.close()
-print("Database 'doubleaction.db' and its tables were created successfully with all customer address fields and order_logs.")
+print("Database 'doubleaction.db' and its tables were created successfully with all customer address fields order_logs, and product_logs.")

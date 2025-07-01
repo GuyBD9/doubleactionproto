@@ -133,7 +133,6 @@ def get_order(order_id):
 
 @app.route("/orders", methods=["POST"])
 def add_order():
-    # --- THIS FUNCTION IS NOW FIXED ---
     data = request.json
     customer_data = data.get("customer")
     items = data.get("items", [])
@@ -143,31 +142,66 @@ def add_order():
     conn = get_db_connection()
     cursor = conn.cursor()
     
+    # Retrieve or create customer
     cursor.execute("SELECT customer_id FROM customers WHERE id_number = ?", (customer_data["id_number"],))
     customer = cursor.fetchone()
     if customer:
         customer_id = customer["customer_id"]
     else:
-        cursor.execute("INSERT INTO customers (name, id_number, phone, email, street, city, postal_code) VALUES (?, ?, ?, ?, ?, ?, ?)", (customer_data["name"], customer_data["id_number"], customer_data["phone"], customer_data["email"], customer_data.get("street"), customer_data.get("city"), customer_data.get("postal_code")))
+        cursor.execute("""
+            INSERT INTO customers (name, id_number, phone, email, street, city, postal_code)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            customer_data["name"], customer_data["id_number"],
+            customer_data["phone"], customer_data["email"],
+            customer_data.get("street"), customer_data.get("city"),
+            customer_data.get("postal_code")
+        ))
         customer_id = cursor.lastrowid
     
-    # Get the current timestamp
+    # Current timestamp
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    # The INSERT statement now correctly includes the timestamp columns
-    cursor.execute("INSERT INTO orders (customer_id, date, status, total, creation_timestamp, last_updated_timestamp) VALUES (?, ?, ?, ?, ?, ?)", (customer_id, data["date"], data["status"], data["total"], timestamp, timestamp))
+    # Create new order
+    cursor.execute("""
+        INSERT INTO orders (customer_id, date, status, total, creation_timestamp, last_updated_timestamp)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (customer_id, data["date"], data["status"], data["total"], timestamp, timestamp))
     order_id = cursor.lastrowid
     
+    # Add items, update inventory, and log changes
     for item in items:
-        cursor.execute("INSERT INTO order_items (order_id, product_id, quantity) VALUES (?, ?, ?)", (order_id, item["product_id"], item["quantity"]))
-        cursor.execute("UPDATE products SET quantity = quantity - ? WHERE product_id = ?", (item["quantity"], item["product_id"]))
-    
-    cursor.execute("INSERT INTO order_logs (order_id, action, timestamp) VALUES (?, ?, ?)", (order_id, "Order created", timestamp))
+        product_id = item["product_id"]
+        quantity = item["quantity"]
+
+        cursor.execute("""
+            INSERT INTO order_items (order_id, product_id, quantity)
+            VALUES (?, ?, ?)
+        """, (order_id, product_id, quantity))
+
+        cursor.execute("""
+            UPDATE products SET quantity = quantity - ? WHERE product_id = ?
+        """, (quantity, product_id))
+
+        cursor.execute("""
+            UPDATE products SET last_ordered_timestamp = ? WHERE product_id = ?
+        """, (timestamp, product_id))
+
+        # Log inventory change in product_logs
+        cursor.execute("""
+            INSERT INTO product_logs (product_id, action, quantity_change, timestamp)
+            VALUES (?, ?, ?, ?)
+        """, (product_id, "Order Placement", -quantity, timestamp))
+
+    # Log order creation
+    cursor.execute("""
+        INSERT INTO order_logs (order_id, action, timestamp)
+        VALUES (?, ?, ?)
+    """, (order_id, "Order created", timestamp))
     
     conn.commit()
     conn.close()
     return jsonify({"message": "Order added successfully"}), 201
-
 
 @app.route("/orders/<int:order_id>/status", methods=["PATCH"])
 def update_order_status(order_id):
@@ -247,6 +281,7 @@ def edit_order(order_id):
             # Decrease the stock for the new/updated item quantity
             cursor.execute("UPDATE products SET quantity = quantity - ? WHERE product_id = ?",
                            (item["quantity"], item["product_id"]))
+            cursor.execute("UPDATE products SET last_ordered_timestamp = ? WHERE product_id = ?", (timestamp, item["product_id"]))
 
         # 6. Log the update action
         cursor.execute("INSERT INTO order_logs (order_id, action, timestamp) VALUES (?, ?, ?)",
@@ -334,13 +369,40 @@ def update_product(product_id):
     name = data.get("name")
     category = data.get("category")
     price = data.get("price")
-    quantity = data.get("quantity")
+    new_quantity = data.get("quantity")
     min_quantity = data.get("min_quantity")
+
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("UPDATE products SET name = ?, category = ?, price = ?, quantity = ?, min_quantity = ? WHERE product_id = ?", (name, category, price, quantity, min_quantity, product_id))
+
+    # Retrieve old quantity
+    cursor.execute("SELECT quantity FROM products WHERE product_id = ?", (product_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "Product not found"}), 404
+
+    old_quantity = row["quantity"]
+    quantity_change = new_quantity - old_quantity
+
+    # Update the product
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute("""
+        UPDATE products
+        SET name = ?, category = ?, price = ?, quantity = ?, min_quantity = ?, last_updated_timestamp = ?
+        WHERE product_id = ?
+    """, (name, category, price, new_quantity, min_quantity, timestamp, product_id))
+
+    # Log quantity change if needed
+    if quantity_change != 0:
+        cursor.execute("""
+            INSERT INTO product_logs (product_id, action, quantity_change, timestamp)
+            VALUES (?, ?, ?, ?)
+        """, (product_id, "Manual Update", quantity_change, timestamp))
+
     conn.commit()
     conn.close()
+
     return jsonify({"message": "Product updated successfully"})
 
 @app.route("/products/<int:product_id>", methods=["DELETE"])
@@ -351,6 +413,25 @@ def delete_product(product_id):
     conn.commit()
     conn.close()
     return jsonify({"message": "Product deleted successfully"})
+
+@app.route("/products/<int:product_id>/logs", methods=["GET"])
+def get_product_logs(product_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT action, quantity_change, timestamp
+        FROM product_logs
+        WHERE product_id = ?
+        ORDER BY timestamp DESC
+    """, (product_id,))
+    logs = cursor.fetchall()
+    conn.close()
+
+    return jsonify([{
+        "action": log["action"],
+        "quantity_change": log["quantity_change"],
+        "timestamp": log["timestamp"]
+    } for log in logs])
 
 # ---------- MAIN EXECUTION ----------
 
