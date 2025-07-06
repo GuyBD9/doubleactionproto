@@ -23,7 +23,6 @@
   <nav class="navbar navbar-expand-lg container">
     <a class="navbar-brand" href="index.html">
       <img src="logo.png" alt="DOUBLE ACTION Logo" style="height: 130px;">
-
     </a>
     <div class="collapse navbar-collapse justify-content-end">
       <ul class="navbar-nav">
@@ -39,12 +38,12 @@
 
 <div class="container">
   <div class="d-flex justify-content-end align-items-center gap-2 mb-3">
-    <button class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#itemModal" onclick="openAddModal()">
+    <input type="text" id="search-input" placeholder="Search by name or SKU" class="form-control" style="max-width: 250px;">
+    <button onclick="searchProduct()" class="btn btn-primary">Search</button>
+    <button onclick="toggleLowStock()" class="btn btn-warning" id="lowStockBtn">Low Stock</button>
+    <button id="addItemBtn" class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#itemModal" onclick="openAddModal()">
       <i class="bi bi-plus-circle"></i> Add Item
     </button>
-    <button onclick="searchProduct()" class="btn btn-secondary">Search</button>
-    <button onclick="toggleLowStock()" class="btn btn-warning" id="lowStockBtn">Low Stock</button>
-    <input type="text" id="search-input" placeholder="Search by name or barcode" class="form-control" style="max-width: 200px;">
   </div>
 
   <h2>Inventory Management</h2>
@@ -58,18 +57,16 @@
         <th>Name</th>
         <th>Category</th>
         <th>Quantity</th>
-        <th>Price</th>
         <th>Min Qty</th>
-        <th>Date Added</th>
+        <th>Price</th>
+        <th>Timestamps</th>
         <th>Actions</th>
-
       </tr>
     </thead>
     <tbody id="inventoryTable"></tbody>
   </table>
 </div>
 
-<!-- Modal for Add/Edit Item -->
 <div class="modal fade" id="itemModal" tabindex="-1" aria-labelledby="itemModalLabel" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -118,7 +115,6 @@
   </div>
 </div>
 
-<!-- Modal for Viewing Logs -->
 <div class="modal fade" id="logModal" tabindex="-1" aria-labelledby="logModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
@@ -187,13 +183,20 @@
     if (res.ok) renderTable();
   }
 
-  async function renderTable() {
+  async function renderTable(searchQuery = '') {
     try {
-        const res = await fetch(API_URL);
+        const url = searchQuery ? `${API_URL}?search=${encodeURIComponent(searchQuery)}` : API_URL;
+        const res = await fetch(url);
         if (!res.ok) throw new Error("Network response was not ok");
+        
         const inventory = await res.json();
         const table = document.getElementById("inventoryTable");
         table.innerHTML = "";
+
+        if (inventory.length === 0) {
+            table.innerHTML = `<tr><td colspan="8" class="text-center">No products found.</td></tr>`;
+            return;
+        }
   
         inventory.forEach(item => {
             const row = document.createElement("tr");
@@ -201,18 +204,25 @@
                 row.classList.add("table-warning");
             }
   
-              // --- START: New code for handling multiple timestamps ---
-              // This part takes each timestamp string from the server, converts it to a Date object,
-              // and then formats it into a readable local string for Israeli format (dd/mm/yyyy, hh:mm:ss).
             const created = item.creation_timestamp ? new Date(item.creation_timestamp).toLocaleString('he-IL') : 'N/A';
             const updated = item.last_updated_timestamp ? new Date(item.last_updated_timestamp).toLocaleString('he-IL') : 'N/A';
             const ordered = item.last_ordered_timestamp ? new Date(item.last_ordered_timestamp).toLocaleString('he-IL') : 'N/A';
-              // --- END: New code ---
-  
-  
-              // --- MODIFIED: The innerHTML of the row is updated to show the new structure ---
-              // Note the order of columns has been slightly changed and the currency symbol is now '₪'.
-              // The single timestamp 'td' was replaced with a 'td' containing three divs for better readability.
+
+            const role = sessionStorage.getItem("role") || "guest";
+            const is_admin = role === "admin";
+            
+            const actionButtons = `
+              <button class="btn btn-sm btn-warning" onclick='openEditModal(${JSON.stringify(item)})' title="Edit Item" ${!is_admin ? 'disabled' : ''}>
+                <i class="bi bi-pencil-square"></i>
+              </button>
+              <button class="btn btn-sm btn-danger" onclick="deleteItem(${item.product_id})" title="Delete Item" ${!is_admin ? 'disabled' : ''}>
+                <i class="bi bi-trash"></i>
+              </button>
+              <button class="btn btn-sm btn-info" onclick="showLogs(${item.product_id}, '${item.name}')" title="View Logs">
+                <i class="bi bi-clock-history"></i>
+              </button>
+            `;
+
             row.innerHTML = `
                 <td>${item.sku || 'N/A'}</td>
                 <td>${item.name}</td>
@@ -225,17 +235,7 @@
                     <div class="timestamp" title="Last Update Date"><strong>Updated:</strong> ${updated}</div>
                     <div class="timestamp" title="Last Ordered Date"><strong>Ordered:</strong> ${ordered}</div>
                 </td>
-                <td>
-                  <button class="btn btn-sm btn-warning" onclick='openEditModal(${JSON.stringify(item)})' title="Edit Item">
-                    <i class="bi bi-pencil-square"></i>
-                  </button>
-                  <button class="btn btn-sm btn-danger" onclick="deleteItem(${item.product_id})" title="Delete Item">
-                    <i class="bi bi-trash"></i>
-                  </button>
-                  <button class="btn btn-sm btn-info" onclick="showLogs(${item.product_id}, '${item.name}')" title="View Logs">
-                    <i class="bi bi-clock-history"></i>
-                  </button>
-                </td>
+                <td>${actionButtons}</td>
             `;
             table.appendChild(row);
         });
@@ -247,68 +247,45 @@
   
   document.addEventListener('DOMContentLoaded', () => {
     const role = sessionStorage.getItem("role") || "guest";
-    if (role !== "admin") {
-      document.body.innerHTML = '<div class="alert alert-danger text-center m-5">Access Denied. Please <a href="login.html">login</a> as an administrator.</div>';
+    
+    if (role !== "admin" && role !== "employee") {
+      document.body.innerHTML = '<div class="alert alert-danger text-center m-5">Access Denied. Please <a href="login.html">login</a>.</div>';
       return;
     }
+    
+    if (role !== "admin") {
+        document.getElementById("addItemBtn").disabled = true;
+    }
+    
     renderTable();
   });
-</script>
 
-<script>
 function searchProduct() {
-    const input = document.getElementById("search-input").value.toLowerCase();
-    const rows = document.querySelectorAll("#inventoryTable tr");
-
-    let found = false;
-
-    rows.forEach(row => {
-        const nameCell = row.cells[1]?.innerText.toLowerCase();
-        const skuCell = row.cells[0]?.innerText.toLowerCase();
-
-        if (nameCell.includes(input) || skuCell.includes(input)) {
-            row.style.display = "";
-            found = true;
-        } else {
-            row.style.display = "none";
-        }
-    });
-
-    if (!found && input.trim() !== "") {
-        alert("Product not found.");
-    } else if (input.trim() === "") {
-        rows.forEach(row => row.style.display = "");
-    }
+    const input = document.getElementById("search-input").value;
+    renderTable(input);
 }
-</script>
 
-<script>
+// REFINED: toggleLowStock function to prevent UI flicker
 let lowStockVisible = false;
-
 function toggleLowStock() {
     const rows = document.querySelectorAll("#inventoryTable tr");
     const btn = document.getElementById("lowStockBtn");
+    
+    lowStockVisible = !lowStockVisible; // Toggle the state
 
-    if (!lowStockVisible) {
-        rows.forEach(row => {
-            if (!row.classList.contains("table-warning")) {
-                row.style.display = "none";
-            }
-        });
-        btn.textContent = "Show All";
-        lowStockVisible = true;
-    } else {
-        rows.forEach(row => {
+    rows.forEach(row => {
+        const isLowStock = row.classList.contains("table-warning");
+        if (lowStockVisible && !isLowStock) {
+            row.style.display = "none";
+        } else {
             row.style.display = "";
-        });
-        btn.textContent = "Low Stock";
-        lowStockVisible = false;
-    }
+        }
+    });
+    
+    btn.textContent = lowStockVisible ? "Show All" : "Low Stock";
 }
-</script>
 
-<script>
-  async function showLogs(productId, productName) {
+async function showLogs(productId, productName) {
       const modalTitle = document.getElementById("logModalLabel");
       const logList = document.getElementById("logList");
       modalTitle.textContent = `Logs for: ${productName}`;
@@ -328,7 +305,7 @@ function toggleLowStock() {
                   item.className = "list-group-item";
                   item.innerHTML = `
                       <strong>${log.action}</strong> 
-                      <span class="text-muted">(${log.quantity_change > 0 ? '+' : ''}${log.quantity_change})</span>
+                      <span class="text-muted">(${(log.quantity_change && log.quantity_change > 0 ? '+' : '')}${log.quantity_change || ''})</span>
                       <div class="timestamp">${new Date(log.timestamp).toLocaleString('he-IL')}</div>
                   `;
                   logList.appendChild(item);
@@ -340,7 +317,7 @@ function toggleLowStock() {
   
       new bootstrap.Modal(document.getElementById("logModal")).show();
   }
-  </script>
+</script>
 
 </body>
 </html>

@@ -314,12 +314,25 @@ def get_order_logs(order_id):
     return jsonify(logs)
 
 # ---------- PRODUCTS API ENDPOINTS (Unchanged, but included for completeness) ----------
+# In app.py
 
 @app.route("/products", methods=["GET"])
 def get_products():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM products ORDER BY product_id DESC")
+    
+    # --- START NEW SEARCH LOGIC ---
+    search_query = request.args.get('search', '')
+    
+    if search_query:
+        query = "SELECT * FROM products WHERE name LIKE ? OR sku LIKE ? ORDER BY product_id DESC"
+        params = (f'%{search_query}%', f'%{search_query}%')
+        cursor.execute(query, params)
+    else:
+        query = "SELECT * FROM products ORDER BY product_id DESC"
+        cursor.execute(query)
+    # --- END NEW SEARCH LOGIC ---
+
     products = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return jsonify(products)
