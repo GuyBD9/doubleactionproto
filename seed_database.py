@@ -5,7 +5,7 @@ import sqlite3
 import random
 import datetime
 import os
-
+from werkzeug.security import generate_password_hash
 # --- CONFIGURATION ---
 DB_PATH = "doubleaction.db"
 NUM_CUSTOMERS = 15
@@ -197,6 +197,23 @@ def seed_orders(cursor):
             """, (product_id, f"Sale (Order #{order_id})", -quantity, timestamp))
 
     print(f"Added {NUM_ORDERS} orders.")
+    
+def seed_users(cursor):
+    """Hashes passwords and seeds the users table."""
+    print("\n--- Seeding Users ---")
+    users_to_add = [
+        # (username, plain_password, role)
+        ('admin', 'admin123', 'admin'),
+        ('employee', 'emp123', 'employee')
+    ]
+
+    for username, password, role in users_to_add:
+        hashed_password = generate_password_hash(password)
+        cursor.execute("""
+            INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)
+        """, (username, hashed_password, role))
+
+    print(f"Added {len(users_to_add)} users with hashed passwords.")
 
 # --- MAIN EXECUTION ---
 if __name__ == "__main__":
@@ -207,6 +224,7 @@ if __name__ == "__main__":
         
         seed_products(cursor)
         seed_customers(cursor)
+        seed_users(cursor)
         seed_orders(cursor)
         
         conn.commit()

@@ -68,31 +68,53 @@
 </footer>
 
 <script>
-  const users = [
-    { username: "admin", password: "admin123", role: "admin" },
-    { username: "employee", password: "emp123", role: "employee" }
-  ];
+  // The API endpoint for login
+  const API_LOGIN_URL = "http://127.0.0.1:5000/api/login";
 
-  function login() {
-    const userInput = document.getElementById("username").value.trim();
-    const passInput = document.getElementById("password").value.trim();
+  // Add event listener to the form itself for better practice
+  document.querySelector('.login-container').addEventListener('submit', (e) => {
+    e.preventDefault(); // Prevent form from reloading the page
+    login();
+  });
+
+  async function login() {
+    const username = document.getElementById("username").value.trim();
+    const password = document.getElementById("password").value.trim();
     const errorEl = document.getElementById("errorMessage");
-    const found = users.find(u => u.username === userInput && u.password === passInput);
 
-    if (found) {
-      sessionStorage.setItem("role", found.role);
-      errorEl.style.display = "none";
-      window.location.href = "index.html";
-    } else {
+    errorEl.style.display = "none"; // Hide error message initially
+
+    try {
+      const response = await fetch(API_LOGIN_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ username, password })
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        // Redirect to the main dashboard on successful login
+        window.location.href = "index.html";
+      } else {
+        // Show error message from the server
+        errorEl.textContent = result.error || "Invalid username or password";
+        errorEl.style.display = "block";
+      }
+    } catch (error) {
+      console.error("Login failed:", error);
+      errorEl.textContent = "Could not connect to the server.";
       errorEl.style.display = "block";
     }
   }
 
-  function guestLogin() {
-    sessionStorage.setItem("role", "guest");
-    window.location.href = "index.html";
-  }
-</script>
+  // Remove the old guestLogin function and the hardcoded users array.
+  // We handle guest access by simply not logging in.
+  // The login button's onclick can be removed, as the form submission handles it.
+  document.querySelector('.btn-primary').setAttribute('type', 'submit');
 
+</script>
 </body>
 </html>

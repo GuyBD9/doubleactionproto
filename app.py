@@ -9,9 +9,14 @@ from flask import send_file
 import pandas as pd
 import io
 from io import BytesIO
+from flask import session, redirect
+from werkzeug.security import check_password_hash
+
 
 app = Flask(__name__)
-CORS(app)
+app.secret_key = '14091997' 
+CORS(app, supports_credentials=True)
+
 
 # --- CONFIGURATION ---
 DB_PATH = "doubleaction.db"
@@ -25,6 +30,47 @@ SKU_PREFIXES = {
 @app.route('/login')
 def login_page():
     return send_from_directory(os.path.abspath(os.getcwd()), 'login.html')
+
+# ------------------ AUTH API ENDPOINTS ------------------
+
+@app.route("/api/login", methods=["POST"])
+def login():
+    data = request.json
+    username = data.get("username")
+    password = data.get("password")
+
+    if not username or not password:
+        return jsonify({"success": False, "error": "Username and password are required"}), 400
+
+    conn = get_db_connection()
+    user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+    conn.close()
+
+    if user and check_password_hash(user['password_hash'], password):
+        # Login successful, store user info in session
+        session['user_id'] = user['id']
+        session['username'] = user['username']
+        session['role'] = user['role']
+        return jsonify({"success": True, "role": user['role']})
+
+    return jsonify({"success": False, "error": "Invalid credentials"}), 401
+
+@app.route("/api/logout", methods=["POST"])
+def logout():
+    session.clear() # Clear all session data
+    return jsonify({"success": True})
+
+@app.route("/api/session")
+def get_session():
+    if 'user_id' in session:
+        return jsonify({
+            "is_logged_in": True,
+            "username": session.get('username'),
+            "role": session.get('role')
+        })
+    return jsonify({"is_logged_in": False})
+
+# --------------------------------------------------------
 
 @app.route('/<path:filename>')
 def static_html(filename):

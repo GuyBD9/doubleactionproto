@@ -98,6 +98,18 @@ CREATE TABLE IF NOT EXISTS product_logs (
 )
 ''')
 
+# --- Users Table ---
+# ADDED: Secure user management with hashed passwords and roles.
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('admin', 'employee'))
+)
+''')
+
+
 conn.commit()
 conn.close()
 print("Database 'doubleaction.db' and its tables were created successfully with all customer address fields order_logs, and product_logs.")
