@@ -320,18 +320,31 @@ def get_order_logs(order_id):
 def get_products():
     conn = get_db_connection()
     cursor = conn.cursor()
-    
-    # --- START NEW SEARCH LOGIC ---
+
+    # Get parameters from the request URL
     search_query = request.args.get('search', '')
-    
+    category_filter = request.args.get('category', '')
+
+    query = "SELECT * FROM products"
+    conditions = []
+    params = []
+
     if search_query:
-        query = "SELECT * FROM products WHERE name LIKE ? OR sku LIKE ? ORDER BY product_id DESC"
-        params = (f'%{search_query}%', f'%{search_query}%')
-        cursor.execute(query, params)
-    else:
-        query = "SELECT * FROM products ORDER BY product_id DESC"
-        cursor.execute(query)
-    # --- END NEW SEARCH LOGIC ---
+        conditions.append("(name LIKE ? OR sku LIKE ?)")
+        # Use tuple expansion for parameters
+        params.extend([f'%{search_query}%', f'%{search_query}%'])
+
+    if category_filter:
+        conditions.append("category = ?")
+        params.append(category_filter)
+
+    # Build the final query if there are any conditions
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+
+    query += " ORDER BY product_id DESC"
+
+    cursor.execute(query, tuple(params))
 
     products = [dict(row) for row in cursor.fetchall()]
     conn.close()

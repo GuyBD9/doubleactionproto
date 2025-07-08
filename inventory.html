@@ -35,21 +35,33 @@
     </div>
   </nav>
 </header>
-
 <div class="container">
-  <div class="d-flex justify-content-end align-items-center gap-2 mb-3">
-    <input type="text" id="search-input" placeholder="Search by name or SKU" class="form-control" style="max-width: 250px;">
-    <button onclick="searchProduct()" class="btn btn-primary">Search</button>
-    <button onclick="toggleLowStock()" class="btn btn-warning" id="lowStockBtn">Low Stock</button>
-    <button id="addItemBtn" class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#itemModal" onclick="openAddModal()">
-      <i class="bi bi-plus-circle"></i> Add Item
-    </button>
-  </div>
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+      
+      <h2 class="mb-0">Inventory Management</h2>
 
-  <h2>Inventory Management</h2>
+      <div class="d-flex align-items-center flex-wrap gap-2">
+          <input type="text" id="search-input" placeholder="Search by name or SKU" class="form-control" style="width: auto;">
+          <select id="category-filter" class="form-select" style="width: auto;">
+              <option value="">All Categories</option>
+              <option value="Fabrics">Fabrics</option>
+              <option value="Pants">Pants</option>
+              <option value="Vests">Vests</option>
+              <option value="Jackets">Jackets</option>
+              <option value="Shirts">Shirts</option>
+              <option value="Ties">Ties</option>
+          </select>
+          <button onclick="applyFilters()" class="btn btn-primary">Search</button>
+          <button onclick="toggleLowStock()" class="btn btn-warning" id="lowStockBtn">Low Stock</button>
+          <button id="addItemBtn" class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#itemModal" onclick="openAddModal()">
+              <i class="bi bi-plus-circle"></i> Add Item
+          </button>
+      </div>
+  </div>
   <a href="/export_inventory" class="btn btn-success mb-3">
-    <i class="bi bi-download"></i> Export Inventory to Excel
+      <i class="bi bi-download"></i> Export Inventory to Excel
   </a>
+
   <table class="table table-bordered table-hover">
     <thead class="table-dark">
       <tr>
@@ -183,9 +195,23 @@
     if (res.ok) renderTable();
   }
 
-  async function renderTable(searchQuery = '') {
+  function applyFilters() {
+    const searchQuery = document.getElementById("search-input").value;
+    const category = document.getElementById("category-filter").value;
+    renderTable(searchQuery, category);
+}
+
+async function renderTable(searchQuery = '', category = '') {
     try {
-        const url = searchQuery ? `${API_URL}?search=${encodeURIComponent(searchQuery)}` : API_URL;
+        const params = new URLSearchParams();
+        if (searchQuery) {
+            params.append('search', searchQuery);
+        }
+        if (category) {
+            params.append('category', category);
+        }
+
+        const url = `${API_URL}?${params.toString()}`;
         const res = await fetch(url);
         if (!res.ok) throw new Error("Network response was not ok");
         
